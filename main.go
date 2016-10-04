@@ -1,39 +1,57 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
+	"time"
 	"github.com/fsouza/go-dockerclient"
-	"github.com/gizak/termui"
+	"github.com/docker/go-units"
 )
 
-func main() {
-	err := termui.Init()
-	if err != nil {
-		panic(err)
+func Short(s string, i int) string {
+	s = strings.TrimPrefix(s, "sha256:")
+	runes := []rune( s )
+	if len( runes ) > i {
+		return string( runes[:i] )
 	}
-	defer termui.Close()
-	
-	endpoint := "unix:///var/run/docker.sock"
-	client, _ := docker.NewClient(endpoint)
-	ls := termui.NewList()
-	ls.ItemFgColor = termui.ColorYellow
-	ls.BorderLabel = "Containers ID"
-	ls.Height = 20
-	ls.Width = 50
-	ls.Y = 0
-
-	termui.Handle("/timer/1s", func(e termui.Event) {
-		conts, _ := client.ListContainers(docker.ListContainersOptions{All: false})
-
-		var l []string
-		for _, cont := range conts {
-			l = append(l ,cont.ID)
-		}
-		ls.Items = l
-		termui.Render(ls)
-		termui.Handle("/sys/kbd/q", func(termui.Event) {
-			termui.StopLoop()
-		})
-	})
-	termui.Loop()
+	return s
 }
 
+func main() {
+	endpoint := "unix:///var/run/docker.sock"
+	client, _ := docker.NewClient(endpoint)
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 20, 1, 3, ' ', 0)
+
+	ticker := time.NewTicker(time.Second)
+	quit := make(chan bool)
+
+	fmt.Printf("\033[s")
+	go func() {
+		for {
+			select {
+			case <- ticker.C:
+				conts, _ := client.ListContainers(docker.ListContainersOptions{All: false})
+				fmt.Printf("\033[u")
+				fmt.Printf("\033[J")
+				titles := "CONTAINER ID\tIMAGE\tCOMMAND\tCREATED\tSTATUS\tNAMES\n"
+				fmt.Fprintf(w, titles)
+				for _, cont := range conts {
+					ID := Short(cont.ID, 12)
+					img := Short(cont.Image, 12)
+					cmd := Short(cont.Command, 14)
+					created := units.HumanDuration(time.Now().UTC().Sub(time.Unix(cont.Created, 0)))
+					status := Short(cont.Status, 12)
+					names := Short(cont.Names[0][1:], 12)
+					fmt.Fprintf(w, "%s\t%s\t\"%s\"\t%s ago\t%s\t%s\n", ID, img, cmd, created, status, names)
+					w.Flush()
+				}
+
+			}
+
+		}
+	}()
+	<-quit
+}
