@@ -3,7 +3,7 @@
 FROM golang:1.6.3
 
 RUN go get github.com/fsouza/go-dockerclient \
-           github.com/gizak/termui
+        github.com/docker/go-units
 
 ENV CGO_ENABLED "0"
 ENV GOOS "linux"
